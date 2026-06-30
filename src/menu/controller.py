@@ -1,14 +1,15 @@
 from fastapi import HTTPException
 from src.menu.dtos import MenuSchema
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from src.menu.models import Menu
 from src.staff.models import UserModel
+from sqlalchemy.future import select
 
 #NB: model_dump() converts a data from pydantic class to a dictionary
 
 ###########################################################################################
 #Logic to carry out the CREATE WORKORDER request
-async def create_menu(menuItem: MenuSchema, db:Session, user: UserModel):
+async def create_menu(menuItem: MenuSchema, db: AsyncSession, user: UserModel):
 
     #First receive and validate data
     new_menu = menuItem.model_dump()
@@ -28,7 +29,8 @@ async def create_menu(menuItem: MenuSchema, db:Session, user: UserModel):
 
     #Third, add the unpacked data to the database and save changes(commit)
     db.add(db_new_menu)
-    db.commit()
+    await db.commit()
+    await db.refresh(db_new_menu)
         
     #Improving endpoints for production:
     #This class is a performance format or practise to make the response more readable
@@ -36,42 +38,39 @@ async def create_menu(menuItem: MenuSchema, db:Session, user: UserModel):
 
 ###########################################################################################
 #Logic to carry out the GET REQUEST (based on the employeeID)
-def get_menus(db: Session, user: UserModel, offset: int = 0, limit: int = 50):
-
-    # 1. If the logged-in user is HR, return ALL menus from all employees
-    # if user.role == "hr":
-    #     return db.query(Menu).all()
-        
-    # 2. If the logged-in user is a worker, only return their own requests
-    #First, query(SEARCH/LOOP) the database for all work orders and return ALL
-    #db_all_workOrders = db.query(WorkOrder).all() #This is for all workorders including all IDs
-    # db_all_menus = db.query(Menu).filter(Menu.staff_id == user.staff_id).all()
+async def get_menus(db: AsyncSession, user: UserModel, offset: int = 0, limit: int = 50):
 
     # All use .all(). With 10,000+ staff/orders/menus, 
     # this loads everything into memory.
     # Add offset and limit query params to every list route:
-    db_all_menus = db.query(Menu).offset(offset).limit(limit).all()
+    
+    stmt = select(Menu).offset(offset).limit(limit)
+    result = await db.execute(stmt)
+    db_all_menus = result.scalars().all()
 
     return db_all_menus
-    #return {"Request": db_all_requests}
 
 ###########################################################################################
 #Logic to carry out the GET REQUEST BY ID request
-def get_menu_by_id(db: Session, id: int):
+async def get_menu_by_id(db: AsyncSession, id: int):
 
     #First, query the database for the work order with the specified ID
-    db_menu_by_id = db.query(Menu).filter(Menu.id == id).first()
+    stmt = select(Menu).where(Menu.id == id)
+    result = await db.execute(stmt)
+    db_menu_by_id = result.scalar_one_or_none()
     
     if db_menu_by_id is None:
         raise HTTPException(status_code=404, detail="Menu ID NOT FOUND", headers=None)
     
     return db_menu_by_id
-    #return {"Work fetched": db_getworkOrder_by_id}
 
 ###########################################################################################
 #Logic to carry out the EDIT/UPDATE REQUEST
-async def edit_menu_by_id(menuItem: MenuSchema, db: Session, id: int, user: UserModel):
-    db_edit_menu = db.query(Menu).filter(Menu.id == id).first()
+async def edit_menu_by_id(menuItem: MenuSchema, db: AsyncSession, id: int, user: UserModel):
+    stmt = select(Menu).where(Menu.id == id)
+    result = await db.execute(stmt)
+    db_edit_menu = result.scalar_one_or_none()
+    
     if db_edit_menu is None:
         raise HTTPException(status_code=404, detail="Menu ID NOT FOUND")
     
@@ -85,25 +84,24 @@ async def edit_menu_by_id(menuItem: MenuSchema, db: Session, id: int, user: User
     db_edit_menu.type = update_data["type"]
     db_edit_menu.status = update_data["status"]
     
-    db.commit()
+    await db.commit()
+    await db.refresh(db_edit_menu)
     return db_edit_menu
 
 
 ###########################################################################################
 #Logic to carry out the DELETE WORKORDER request
-def delete_menu_by_id(id: int, db: Session, user: UserModel):
-    db_delete_menu_by_id = db.query(Menu).filter(Menu.id == id).first()
+async def delete_menu_by_id(id: int, db: AsyncSession, user: UserModel):
+    stmt = select(Menu).where(Menu.id == id)
+    result = await db.execute(stmt)
+    db_delete_menu_by_id = result.scalar_one_or_none()
 
     # 1. Raise 404 if not found
     if db_delete_menu_by_id is None:
         raise HTTPException(status_code=404, detail="Menu ID NOT FOUND", headers=None)
 
-    # 2. Check authorization
-    # if db_delete_menu_by_id.staff_id != user.staff_id and user.role != "hr":
-    #     raise HTTPException(status_code=403, detail="You are not authorized to delete this menu", headers=None)
-
     # 3. Delete from DB
-    db.delete(db_delete_menu_by_id)
-    db.commit()
+    await db.delete(db_delete_menu_by_id)
+    await db.commit()
 
     return {"Menu removed successfully"}

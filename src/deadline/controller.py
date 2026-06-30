@@ -1,84 +1,88 @@
 from fastapi import HTTPException
 from src.deadline.dtos import DeadlineSchema
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from src.deadline.models import Deadline
 from src.staff.models import UserModel
+from sqlalchemy.future import select
 
 #NB: model_dump() converts a data from pydantic class to a dictionary
 
 ###########################################################################################
 #Logic to carry out the CREATE WORKORDER request
-def set_deadline(deadlineItem: DeadlineSchema, db: Session, user: UserModel):
+async def set_deadline(deadlineItem: DeadlineSchema, db: AsyncSession, user: UserModel):
     data = deadlineItem.model_dump()
-    existing = db.query(Deadline).filter(Deadline.week_string == data["week_string"]).first()
+    
+    stmt = select(Deadline).where(Deadline.week_string == data["week_string"])
+    result = await db.execute(stmt)
+    existing = result.scalar_one_or_none()
+    
     if existing:
         existing.deadline = data["deadline"]
     else:
         existing = Deadline(week_string=data["week_string"], deadline=data["deadline"])
         db.add(existing)
-    db.commit()
+    
+    await db.commit()
+    await db.refresh(existing)
     return existing
 
 ###########################################################################################
 #Logic to carry out the GET REQUEST (based on the employeeID)
-def get_deadline_by_week(week_string: str, db: Session):
-    deadline = db.query(Deadline).filter(Deadline.week_string == week_string).first()
+async def get_deadline_by_week(week_string: str, db: AsyncSession):
+    stmt = select(Deadline).where(Deadline.week_string == week_string)
+    result = await db.execute(stmt)
+    deadline = result.scalar_one_or_none()
+    
     return deadline or {"week_string": week_string, "deadline": None}
 
 ###########################################################################################
 #Logic to carry out the GET REQUEST BY ID request
-def get_deadline_by_id(db: Session, id: int):
+async def get_deadline_by_id(db: AsyncSession, id: int):
 
     #First, query the database for the work order with the specified ID
-    db_deadline_by_id = db.query(Deadline).filter(Deadline.id == id).first()
+    stmt = select(Deadline).where(Deadline.id == id)
+    result = await db.execute(stmt)
+    db_deadline_by_id = result.scalar_one_or_none()
     
     if db_deadline_by_id is None:
         raise HTTPException(status_code=404, detail="Deadline ID NOT FOUND", headers=None)
     
     return db_deadline_by_id
-    #return {"Work fetched": db_getworkOrder_by_id}
 
 ###########################################################################################
 #Logic to carry out the EDIT/UPDATE REQUEST
-async def edit_deadline_by_id(deadlineItem: DeadlineSchema, db: Session, id: int, user: UserModel):
+async def edit_deadline_by_id(deadlineItem: DeadlineSchema, db: AsyncSession, id: int, user: UserModel):
 
-    db_edit_deadline_by_id: Deadline = db.query(Deadline).filter(Deadline.id == id).first()
+    stmt = select(Deadline).where(Deadline.id == id)
+    result = await db.execute(stmt)
+    db_edit_deadline_by_id = result.scalar_one_or_none()
     
     # 1. Raise 404 if not found
     if db_edit_deadline_by_id is None:
         raise HTTPException(status_code=404, detail="Deadline ID NOT FOUND", headers=None)
-    
-    # 2. Check authorization
-    # if db_edit_menu_by_id.staff_id != user.staff_id and user.role != "hr":
-    #     raise HTTPException(status_code=403, detail="You are not authorized to edit this menu", headers=None)
 
     # 3. Apply updates
     db_edit_deadline_by_id.deadline = deadlineItem.deadline
-
-    # OR USE THE ARRAY METHOD after converting the pydantic model to a dictionary
-    # deadlineItem.model_dump()
-    # db_edit_deadline_by_id.deadline = deadlineItem["deadline"]
     
-    db.commit()
+    await db.commit()
+    await db.refresh(db_edit_deadline_by_id)
     
     return db_edit_deadline_by_id
 
 
 ###########################################################################################
 #Logic to carry out the DELETE WORKORDER request
-def delete_deadline_by_id(id: int, db: Session, user: UserModel):
-    db_delete_deadline_by_id = db.query(Deadline).filter(Deadline.id == id).first()
+async def delete_deadline_by_id(id: int, db: AsyncSession, user: UserModel):
+    stmt = select(Deadline).where(Deadline.id == id)
+    result = await db.execute(stmt)
+    db_delete_deadline_by_id = result.scalar_one_or_none()
 
     # 1. Raise 404 if not found
     if db_delete_deadline_by_id is None:
         raise HTTPException(status_code=404, detail="Deadline ID NOT FOUND", headers=None)
 
-    # 2. Check authorization
-    # if db_delete_menu_by_id.staff_id != user.staff_id and user.role != "hr":
-    #     raise HTTPException(status_code=403, detail="You are not authorized to delete this menu", headers=None)
-
     # 3. Delete from DB
-    db.delete(db_delete_deadline_by_id)
-    db.commit()
+    await db.delete(db_delete_deadline_by_id)
+    await db.commit()
 
     return {"Deadline removed successfully"}

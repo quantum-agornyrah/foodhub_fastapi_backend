@@ -1,15 +1,16 @@
 from fastapi import HTTPException
 from src.orders.dtos import OrdersSchema, OrdersUpdateSchema
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from src.orders.models import Orders
 from src.staff.models import UserModel
 from datetime import datetime
+from sqlalchemy.future import select
 
 #NB: model_dump() converts a data from pydantic class to a dictionary
 
 ###########################################################################################
 #Logic to carry out the CREATE ORDER orders
-async def create_order(orderItem: OrdersSchema, db:Session, user: UserModel):
+async def create_order(orderItem: OrdersSchema, db: AsyncSession, user: UserModel):
 
     #First receive and validate data
     new_order = orderItem.model_dump()
@@ -37,7 +38,8 @@ async def create_order(orderItem: OrdersSchema, db:Session, user: UserModel):
 
     #Third, add the unpacked data to the database and save changes(commit)
     db.add(db_new_order)
-    db.commit()
+    await db.commit()
+    await db.refresh(db_new_order)  # ✅ Add this
         
     #Improving endpoints for production:
     #This class is a performance format or practise to make the response more readable
@@ -45,52 +47,54 @@ async def create_order(orderItem: OrdersSchema, db:Session, user: UserModel):
 
 ###########################################################################################
 #Logic to carry out the GET orders (based on the employeeID)
-def get_orders(db: Session, user: UserModel, offset: int = 0, limit: int = 50):
+async def get_orders(db: AsyncSession, user: UserModel, offset: int = 0, limit: int = 50):
 
     # 1. If the logged-in user is HR, return ALL orderss from all employees
     if user.role == "hr":
-        
-        # All use .all(). With 10,000+ staff/orders/menus, 
-        # this loads everything into memory.
-        # Add offset and limit query params to every list route:
-        return db.query(Orders).offset(offset).limit(limit).all()
+        stmt = select(Orders).offset(offset).limit(limit)
+        result = await db.execute(stmt)
+        return result.scalars().all()
         
     # 2. If the logged-in user is a worker, only return their own orderss
-    #First, query(SEARCH/LOOP) the database for all work orders and return ALL
-    #db_all_workOrders = db.query(WorkOrder).all() #This is for all workorders including all IDs
-    db_all_orders = db.query(Orders).filter(Orders.staff_id == user.staff_id).all()
+    stmt = select(Orders).where(Orders.staff_id == user.staff_id)
+    result = await db.execute(stmt)
+    db_all_orders = result.scalars().all()
 
     return db_all_orders
-    #return {"orders": db_all_orderss}
 
 ###########################################################################################
 #Logic to carry out the GET orders BY ID orders
-def get_orders_by_id(db: Session, id: int):
+async def get_orders_by_id(db: AsyncSession, id: int):
 
     #First, query the database for the work order with the specified ID
-    db_orders_by_id = db.query(Orders).filter(Orders.id == id).first()
+    stmt = select(Orders).where(Orders.id == id)
+    result = await db.execute(stmt)
+    db_orders_by_id = result.scalar_one_or_none()
     
     if db_orders_by_id is None:
         raise HTTPException(status_code=404, detail="orders ID NOT FOUND", headers=None)
     
     return db_orders_by_id
-    #return {"Work fetched": db_getworkOrder_by_id}
 
 ###########################################################################################
 #Logic to fetch an order based on staff_id
-def get_my_orders_by_id(db: Session, id: int, user: UserModel):
+async def get_my_orders_by_id(db: AsyncSession, id: int, user: UserModel):
     if user.staff_id != id and user.role != "hr":
         raise HTTPException(status_code=403, detail="Not authorized to view these orders")
 
-    db_orders_by_id = db.query(Orders).filter(Orders.staff_id == id).all()
+    stmt = select(Orders).where(Orders.staff_id == id)
+    result = await db.execute(stmt)
+    db_orders_by_id = result.scalars().all()
 
     return db_orders_by_id
 
 ###########################################################################################
 #Logic to carry out the EDIT/UPDATE orders
-async def edit_orders_by_id(ordersItem: OrdersUpdateSchema, db: Session, id: int, user: UserModel):
+async def edit_orders_by_id(ordersItem: OrdersUpdateSchema, db: AsyncSession, id: int, user: UserModel):
 
-    db_edit_orders_by_id: Orders = db.query(Orders).filter(Orders.id == id).first()
+    stmt = select(Orders).where(Orders.id == id)
+    result = await db.execute(stmt)
+    db_edit_orders_by_id = result.scalar_one_or_none()
     
     # 1. Raise 404 if not found
     if db_edit_orders_by_id is None:
@@ -107,15 +111,18 @@ async def edit_orders_by_id(ordersItem: OrdersUpdateSchema, db: Session, id: int
     for key, value in update_data.items():
         setattr(db_edit_orders_by_id, key, value)
     
-    db.commit()
+    await db.commit()
+    await db.refresh(db_edit_orders_by_id)
     
     return db_edit_orders_by_id
 
 
 ###########################################################################################
 #Logic to carry out the DELETE WORKORDER orders
-def delete_orders_by_id(id: int, db: Session, user: UserModel):
-    db_delete_orders_by_id = db.query(Orders).filter(Orders.id == id).first()
+async def delete_orders_by_id(id: int, db: AsyncSession, user: UserModel):
+    stmt = select(Orders).where(Orders.id == id)
+    result = await db.execute(stmt)
+    db_delete_orders_by_id = result.scalar_one_or_none()
 
     # 1. Raise 404 if not found
     if db_delete_orders_by_id is None:
@@ -126,7 +133,39 @@ def delete_orders_by_id(id: int, db: Session, user: UserModel):
         raise HTTPException(status_code=403, detail="You are not authorized to delete this order", headers=None)
 
     # 3. Delete from DB
-    db.delete(db_delete_orders_by_id)
-    db.commit()
+    await db.delete(db_delete_orders_by_id)
+    await db.commit()
 
     return None
+
+###########################################################################################
+# KEY PATTERNS TO REMEMBER:
+# # Get one item
+# stmt = select(Model).where(Model.id == id)
+# result = await db.execute(stmt)
+# item = result.scalar_one_or_none()  # Returns None if not found
+
+# # Get all items
+# stmt = select(Model).offset(offset).limit(limit)
+# result = await db.execute(stmt)
+# items = result.scalars().all()
+
+# # Get all with filter
+# stmt = select(Model).where(Model.status == "Active")
+# result = await db.execute(stmt)
+# items = result.scalars().all()
+
+# Database Operations:
+# # Create
+# db.add(item)
+# await db.commit()
+# await db.refresh(item)
+
+# # Update
+# item.field = new_value
+# await db.commit()
+# await db.refresh(item)
+
+# # Delete
+# await db.delete(item)
+# await db.commit()

@@ -1,17 +1,18 @@
 from fastapi import Request, HTTPException, status, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from src.utils.settings import settings
 from src.staff.models import UserModel
 import jwt
 from jwt.exceptions import InvalidTokenError
 from datetime import datetime
 from src.utils.db import get_db
+from sqlalchemy.future import select
 
 
 #Creating protected routes by making this fuction a dependent function
-def is_authenticated(request:Request, db: Session = Depends(get_db)): 
+async def is_authenticated(request: Request, db: AsyncSession = Depends(get_db)): 
 
-    #USE TRY and CATCH or EXCEPT to implement this ogic especially when the token is invalid or expired
+    #USE TRY and CATCH or EXCEPT to implement this logic especially when the token is invalid or expired
     try:
         #Get the token that was generated once the user logged in and extract or 
         #find the value of the authorization key in the headers object
@@ -20,7 +21,7 @@ def is_authenticated(request:Request, db: Session = Depends(get_db)):
         if not token:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token NOT FOUND.")
         
-        #NB normally, generated tokens have the prefix "jwt" prepended to it 7
+        #NB normally, generated tokens have the prefix "jwt" prepended to it 
         #so this step actually removes that and helps us validate the token alone
         token = token.split(" ")[-1]
 
@@ -36,8 +37,11 @@ def is_authenticated(request:Request, db: Session = Depends(get_db)):
         if current_time > exp_time:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired.")
         
-        #Check if the user_id matches the one in the database
-        user = db.query(UserModel).filter(UserModel.staff_id == token_staff_id).first()
+        #Check if the user_id matches the one in the database (ASYNC QUERY)
+        stmt = select(UserModel).where(UserModel.staff_id == token_staff_id)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+        
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid staff ID.")
 
