@@ -107,6 +107,10 @@ async def edit_orders_by_id(ordersItem: OrdersUpdateSchema, db: AsyncSession, id
     # 3. Apply updates
     update_data = ordersItem.model_dump(exclude_unset=True)
 
+    # Automatically record submission timestamp if transitioning to submitted status
+    if "status" in update_data and update_data["status"].lower() == "submitted":
+        db_edit_orders_by_id.submitted_at = datetime.now()
+
     # This dynamically sets only the fields that were actually provided in the request.
     for key, value in update_data.items():
         setattr(db_edit_orders_by_id, key, value)
