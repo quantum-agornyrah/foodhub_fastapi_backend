@@ -8,6 +8,7 @@ from src.deadline.router import deadline_router
 from fastapi.middleware.cors import CORSMiddleware
 from src.utils.settings import settings
 from src.utils.limiter import limiter
+from src.utils.health import router as health_router
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -36,6 +37,9 @@ app = FastAPI(
     redoc_url=None,
 )
 app.state.limiter = limiter
+
+# HEALTH CHECK ROUTE
+app.include_router(health_router)
 
 #Upload directory for menu images
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
@@ -102,8 +106,3 @@ async def catch_all_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"detail": "An internal server error occurred. Please try again later.", "error_type": "SystemError"}
     )
-
-# GET /health endpoint for load balancers or monitoring.
-@app.get("/health")
-def health():
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
