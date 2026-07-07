@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from src.menu.dtos import MenuSchema
+from src.menu.dtos import MenuSchema, BulkMenuCreateSchema
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.menu.models import Menu
 from src.staff.models import UserModel
@@ -8,7 +8,7 @@ from sqlalchemy.future import select
 #NB: model_dump() converts a data from pydantic class to a dictionary
 
 ###########################################################################################
-#Logic to carry out the CREATE WORKORDER request
+#Logic to carry out the CREATE MENUITEM request
 async def create_menu(menuItem: MenuSchema, db: AsyncSession, user: UserModel):
 
     #First receive and validate data
@@ -16,7 +16,6 @@ async def create_menu(menuItem: MenuSchema, db: AsyncSession, user: UserModel):
 
     #Second, add data to databse by unpacking the data and using the database model as a blueprint
     db_new_menu = Menu(
-            id = new_menu["id"],
             week_string = new_menu["week_string"],
             date = new_menu["date"],
             day = new_menu["day"],
@@ -35,6 +34,37 @@ async def create_menu(menuItem: MenuSchema, db: AsyncSession, user: UserModel):
     #Improving endpoints for production:
     #This class is a performance format or practise to make the response more readable
     return db_new_menu
+
+###########################################################################################
+#Logic to carry out the BULK - CREATE MENUITEM request
+async def bulk_create_menu(menuItem: BulkMenuCreateSchema, db: AsyncSession, user: UserModel):
+    #First, check if a menu item already exists
+    if not menuItem.items:
+        raise HTTPException(status_code=400, detail="No menu items provided")
+    
+    #Second, create an array instance to get all newly added bulk menu items
+    db_bulk_items = []
+
+    #Validate data and convert them to schema format before adding them to the database array
+    for bulk_item in menuItem.items:
+
+        #Reject items where status is off_day or holiday
+        if bulk_item.status in ("off_day", "holiday"):
+            raise HTTPException(status_code=400, detail="Bulk food add cannot create off-day markers.")
+
+        new_bulk_menu = bulk_item.model_dump()
+        db_bulk_items.append(Menu(**new_bulk_menu))
+
+    db.add_all(db_bulk_items)
+    
+    await db.commit()
+
+    for item in db_bulk_items:
+        await db.refresh(item)
+        
+    #Improving endpoints for production:
+    #This class is a performance format or practise to make the response more readable
+    return db_bulk_items
 
 ###########################################################################################
 #Logic to carry out the GET REQUEST (based on the employeeID)
@@ -90,7 +120,7 @@ async def edit_menu_by_id(menuItem: MenuSchema, db: AsyncSession, id: int, user:
 
 
 ###########################################################################################
-#Logic to carry out the DELETE WORKORDER request
+#Logic to carry out the DELETE  request
 async def delete_menu_by_id(id: int, db: AsyncSession, user: UserModel):
     stmt = select(Menu).where(Menu.id == id)
     result = await db.execute(stmt)

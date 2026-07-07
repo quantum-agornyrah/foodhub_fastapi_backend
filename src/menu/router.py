@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from src.menu import controller
-from src.menu.dtos import MenuSchema, MenuResponseSchema
+from src.menu.dtos import MenuSchema, MenuResponseSchema, BulkMenuCreateSchema
 from src.utils.db import get_db
 from fastapi import status
 from typing import List
@@ -27,6 +27,18 @@ async def create_menu(menu: MenuSchema, db: AsyncSession = Depends(get_db), user
         raise HTTPException(status_code=403, detail="Only HR can create menu items.")
 
     return await controller.create_menu(menu, db, user)
+
+###########################################################################################
+
+#Create a route to create a bulk menu
+@menu_router.post("/bulk-create", response_model=List[MenuResponseSchema], status_code=status.HTTP_201_CREATED)
+async def bulk_create_menu(menu: BulkMenuCreateSchema, db: AsyncSession = Depends(get_db), user: UserModel = Depends(is_authenticated)):
+
+    # Guard check
+    if user.role.lower() != "hr":
+        raise HTTPException(status_code=403, detail="Only HR can create menu items.")
+
+    return await controller.bulk_create_menu(menu, db, user)
 
 ###########################################################################################
 
