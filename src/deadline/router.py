@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import date
 from src.deadline import controller
 from src.deadline.dtos import DeadlineSchema
 from src.utils.db import get_db
@@ -23,7 +24,7 @@ async def set_deadline(deadline: DeadlineSchema, db: AsyncSession = Depends(get_
 
 #Create a route to get a deadline
 @deadline_router.get("/{week_string}")
-async def get_deadline(week_string: str, db: AsyncSession = Depends(get_db), user: UserModel = Depends(is_authenticated)):
+async def get_deadline(week_string: date, db: AsyncSession = Depends(get_db), user: UserModel = Depends(is_authenticated)):
     return await controller.get_deadline_by_week(week_string, db)
 
 ###########################################################################################

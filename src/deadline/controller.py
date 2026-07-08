@@ -1,9 +1,11 @@
 from fastapi import HTTPException
+from datetime import date
 from src.deadline.dtos import DeadlineSchema
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.deadline.models import Deadline
 from src.staff.models import UserModel
 from sqlalchemy.future import select
+from src.utils.ws_manager import ws_manager
 
 #NB: model_dump() converts a data from pydantic class to a dictionary
 
@@ -24,11 +26,15 @@ async def set_deadline(deadlineItem: DeadlineSchema, db: AsyncSession, user: Use
     
     await db.commit()
     await db.refresh(existing)
+
+    #WebSocket broadcast call
+    await ws_manager.broadcast({"type": "deadline_updated", "week_string": str(existing.week_string)})
+
     return existing
 
 ###########################################################################################
 #Logic to carry out the GET REQUEST (based on the employeeID)
-async def get_deadline_by_week(week_string: str, db: AsyncSession):
+async def get_deadline_by_week(week_string: date, db: AsyncSession):
     stmt = select(Deadline).where(Deadline.week_string == week_string)
     result = await db.execute(stmt)
     deadline = result.scalar_one_or_none()
@@ -66,6 +72,9 @@ async def edit_deadline_by_id(deadlineItem: DeadlineSchema, db: AsyncSession, id
     
     await db.commit()
     await db.refresh(db_edit_deadline_by_id)
+
+    #WebSocket broadcast call
+    await ws_manager.broadcast({"type": "deadline_updated", "week_string": str(db_edit_deadline_by_id.week_string)})
     
     return db_edit_deadline_by_id
 

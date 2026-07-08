@@ -3,7 +3,8 @@ from src.orders import controller
 from src.orders.dtos import OrdersSchema, OrdersResponseSchema, OrdersUpdateSchema
 from src.utils.db import get_db
 from fastapi import status
-from typing import List
+from datetime import date
+from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.utils.helpers import is_authenticated
 from src.staff.models import UserModel
@@ -20,8 +21,14 @@ async def create_order(request: OrdersSchema, db: AsyncSession = Depends(get_db)
 
 #Create a route to fetch all requests
 @orders_router.get("/all", response_model=List[OrdersResponseSchema], status_code=status.HTTP_200_OK)
-async def fetch_orders(db: AsyncSession = Depends(get_db), user: UserModel = Depends(is_authenticated)):
-    return await controller.get_orders(db, user)
+async def fetch_orders(
+    offset: int = 0, 
+    limit: int = 100, 
+    week_string: Optional[date] = None, 
+    db: AsyncSession = Depends(get_db), 
+    user: UserModel = Depends(is_authenticated)
+):
+    return await controller.get_orders(db, user, offset=offset, limit=limit, week_string=week_string)
 
 ###########################################################################################
 

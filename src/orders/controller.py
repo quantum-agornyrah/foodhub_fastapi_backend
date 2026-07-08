@@ -3,7 +3,7 @@ from src.orders.dtos import OrdersSchema, OrdersUpdateSchema
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.orders.models import Orders
 from src.staff.models import UserModel
-from datetime import datetime
+from datetime import date
 from sqlalchemy.future import select
 
 #NB: model_dump() converts a data from pydantic class to a dictionary
@@ -47,16 +47,24 @@ async def create_order(orderItem: OrdersSchema, db: AsyncSession, user: UserMode
 
 ###########################################################################################
 #Logic to carry out the GET orders (based on the employeeID)
-async def get_orders(db: AsyncSession, user: UserModel, offset: int = 0, limit: int = 50):
+async def get_orders(db: AsyncSession, user: UserModel, offset: int = 0, limit: int = 100, week_string : date = None):
 
     # 1. If the logged-in user is HR, return ALL orderss from all employees
     if user.role == "hr":
-        stmt = select(Orders).offset(offset).limit(limit)
+        stmt = select(Orders)
+        if week_string:
+            stmt = stmt.where(Orders.week_string == week_string)
+        stmt = stmt.offset(offset).limit(limit)
+
         result = await db.execute(stmt)
         return result.scalars().all()
         
     # 2. If the logged-in user is a worker, only return their own orderss
     stmt = select(Orders).where(Orders.staff_id == user.staff_id)
+
+    if week_string:
+        stmt = stmt.where(Orders.week_string == week_string)
+
     result = await db.execute(stmt)
     db_all_orders = result.scalars().all()
 

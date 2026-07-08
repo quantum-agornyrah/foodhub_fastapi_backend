@@ -2,8 +2,10 @@ from fastapi import HTTPException
 from src.menu.dtos import MenuSchema, BulkMenuCreateSchema
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.menu.models import Menu
+from datetime import date
 from src.staff.models import UserModel
 from sqlalchemy.future import select
+from src.utils.ws_manager import ws_manager
 
 #NB: model_dump() converts a data from pydantic class to a dictionary
 
@@ -30,6 +32,9 @@ async def create_menu(menuItem: MenuSchema, db: AsyncSession, user: UserModel):
     db.add(db_new_menu)
     await db.commit()
     await db.refresh(db_new_menu)
+
+    #WebSocket broadcast call
+    await ws_manager.broadcast({"type": "menu_updated", "week_string": str(db_new_menu.week_string)})
         
     #Improving endpoints for production:
     #This class is a performance format or practise to make the response more readable
@@ -61,6 +66,10 @@ async def bulk_create_menu(menuItem: BulkMenuCreateSchema, db: AsyncSession, use
 
     for item in db_bulk_items:
         await db.refresh(item)
+
+    #WebSocket broadcast call
+    if db_bulk_items:
+        await ws_manager.broadcast({"type": "menu_updated", "week_string": str(db_bulk_items[0].week_string)})
         
     #Improving endpoints for production:
     #This class is a performance format or practise to make the response more readable
@@ -68,13 +77,20 @@ async def bulk_create_menu(menuItem: BulkMenuCreateSchema, db: AsyncSession, use
 
 ###########################################################################################
 #Logic to carry out the GET REQUEST (based on the employeeID)
-async def get_menus(db: AsyncSession, user: UserModel, offset: int = 0, limit: int = 50):
+async def get_menus(db: AsyncSession, user: UserModel, offset: int = 0, limit: int = 100, week_string: date = None):
 
     # All use .all(). With 10,000+ staff/orders/menus, 
     # this loads everything into memory.
     # Add offset and limit query params to every list route:
     
-    stmt = select(Menu).offset(offset).limit(limit)
+    stmt = select(Menu)
+
+    # Group menu by weeks
+    if week_string:
+        stmt = stmt.where(Menu.week_string == week_string)
+
+    stmt = stmt.offset(offset).limit(limit)
+
     result = await db.execute(stmt)
     db_all_menus = result.scalars().all()
 
@@ -116,6 +132,10 @@ async def edit_menu_by_id(menuItem: MenuSchema, db: AsyncSession, id: int, user:
     
     await db.commit()
     await db.refresh(db_edit_menu)
+
+    #WebSocket broadcast call
+    await ws_manager.broadcast({"type": "menu_updated", "week_string": str(db_edit_menu.week_string)})
+    
     return db_edit_menu
 
 
@@ -133,5 +153,8 @@ async def delete_menu_by_id(id: int, db: AsyncSession, user: UserModel):
     # 3. Delete from DB
     await db.delete(db_delete_menu_by_id)
     await db.commit()
+
+    #WebSocket broadcast call
+    await ws_manager.broadcast({"type": "menu_updated", "week_string": str(db_delete_menu_by_id.week_string)})
 
     return {"Menu removed successfully"}

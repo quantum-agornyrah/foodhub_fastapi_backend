@@ -8,7 +8,6 @@ from datetime import datetime
 from src.utils.db import get_db
 from sqlalchemy.future import select
 
-
 #Creating protected routes by making this fuction a dependent function
 async def is_authenticated(request: Request, db: AsyncSession = Depends(get_db)): 
 
@@ -58,3 +57,25 @@ async def is_authenticated(request: Request, db: AsyncSession = Depends(get_db))
     
     except InvalidTokenError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="You are UNAUTHORIZED")
+
+#Function to get the jwt token from an active staff
+async def get_user_from_token(token: str, db: AsyncSession):
+    try:
+        data = jwt.decode(token, settings.SECRET_KEY, settings.ALGORITHM)
+        token_staff_id = data.get("staff_id")
+        exp_time = data.get("exp")
+
+        current_time = datetime.now().timestamp()
+        if current_time > exp_time:
+            return None
+        
+        stmt = select(UserModel).where(UserModel.staff_id == token_staff_id)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+        
+        if not user or user.status.lower() == "inactive":
+            return None
+        
+        return user
+    except Exception:
+        return None
