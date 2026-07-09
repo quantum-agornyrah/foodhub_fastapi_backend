@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     MAIL_PASSWORD: str
     ENVIRONMENT: str
 
+    # Redis connection string
+    REDIS_URL: str = "redis://localhost:6379/0"
+
     # S3 upload parameters for menu images
     S3_ENDPOINT_URL: str = os.getenv("S3_ENDPOINT_URL", "")
     S3_ACCESS_KEY: str = os.getenv("S3_ACCESS_KEY", "")

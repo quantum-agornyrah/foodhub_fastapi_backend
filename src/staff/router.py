@@ -29,7 +29,7 @@ async def staff_get_all_users(db: AsyncSession = Depends(get_db)):
 
 #Create a route to login a user
 @staff_router.post("/login", status_code=status.HTTP_200_OK)
-@limiter.limit("10/minute")   # max 10 login attempts per minute per IP
+@limiter.limit("5/minute")   # max 10 login attempts per minute per IP
 async def staff_login(user: LoginSchema, request: Request, db: AsyncSession = Depends(get_db)):
     return await controller.login(user, request, db)
 
@@ -40,6 +40,14 @@ async def staff_login(user: LoginSchema, request: Request, db: AsyncSession = De
 @staff_router.get("/auth", response_model=UserResponseSchema, status_code=status.HTTP_200_OK)
 async def staff_authenticate(request: Request, db: AsyncSession = Depends(get_db)):
     return await controller.is_authenticated(request, db)
+
+
+###########################################################################################
+
+#Create a route to logout staff and blacklist tokens
+@staff_router.post("/logout", status_code=status.HTTP_200_OK)
+async def staff_logout(request: Request):
+    return await controller.logout(request)
 
 
 ###########################################################################################

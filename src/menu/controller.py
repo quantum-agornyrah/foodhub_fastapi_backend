@@ -6,8 +6,33 @@ from datetime import date
 from src.staff.models import UserModel
 from sqlalchemy.future import select
 from src.utils.ws_manager import ws_manager
+import json
+from src.utils.redis import redis_client
 
-#NB: model_dump() converts a data from pydantic class to a dictionary
+# Helper function to serialize Menu objects to standard dictionaries
+def menu_to_dict(menu: Menu) -> dict:
+    return {
+        "id": menu.id,
+        "week_string": menu.week_string.isoformat() if menu.week_string else None,
+        "date": menu.date.isoformat() if menu.date else None,
+        "day": menu.day,
+        "title": menu.title,
+        "description": menu.description,
+        "image_url": menu.image_url,
+        "type": menu.type,
+        "status": menu.status
+    }
+
+# Helper to scan and delete all menu cache keys when updates happen
+async def invalidate_menu_cache():
+    try:
+        async for key in redis_client.scan_iter("menu:*"):
+            await redis_client.delete(key)
+    except Exception:
+        # Fallback if Redis is temporarily unreachable
+        pass
+
+#NB: model_dump() converts a data from pydantic class/schema to a dictionary
 
 ###########################################################################################
 #Logic to carry out the CREATE MENUITEM request
@@ -32,6 +57,9 @@ async def create_menu(menuItem: MenuSchema, db: AsyncSession, user: UserModel):
     db.add(db_new_menu)
     await db.commit()
     await db.refresh(db_new_menu)
+
+    #To make sure users don't see outdated menus, INVALIDATE CACHE
+    await invalidate_menu_cache()
 
     #WebSocket broadcast call
     await ws_manager.broadcast({"type": "menu_updated", "week_string": str(db_new_menu.week_string)})
@@ -67,6 +95,9 @@ async def bulk_create_menu(menuItem: BulkMenuCreateSchema, db: AsyncSession, use
     for item in db_bulk_items:
         await db.refresh(item)
 
+    #To make sure users don't see outdated menus, INVALIDATE CACHE
+    await invalidate_menu_cache()
+
     #WebSocket broadcast call
     if db_bulk_items:
         await ws_manager.broadcast({"type": "menu_updated", "week_string": str(db_bulk_items[0].week_string)})
@@ -78,6 +109,19 @@ async def bulk_create_menu(menuItem: BulkMenuCreateSchema, db: AsyncSession, use
 ###########################################################################################
 #Logic to carry out the GET REQUEST (based on the employeeID)
 async def get_menus(db: AsyncSession, user: UserModel, offset: int = 0, limit: int = 100, week_string: date = None):
+    # Generate a unique cache key based on query filters
+    week_str = week_string.isoformat() if week_string else "all"
+    cache_key = f"menu:list:week_string:{week_str}:offset:{offset}:limit:{limit}"
+
+    # Fetch menus from Redis first / Check if data exists in cache first
+    try:
+        cached_data = await redis_client.get(cache_key)
+        if cached_data:
+            return json.loads(cached_data)
+    except Exception:
+        pass
+
+    # When data doesnt exist in Redis / Cache miss? Query the database instead
 
     # All use .all(). With 10,000+ staff/orders/menus, 
     # this loads everything into memory.
@@ -94,19 +138,41 @@ async def get_menus(db: AsyncSession, user: UserModel, offset: int = 0, limit: i
     result = await db.execute(stmt)
     db_all_menus = result.scalars().all()
 
+    # Store fetched data from the database unto redis for at least an hour
+    try:
+        serialized_menus = [menu_to_dict(m) for m in db_all_menus]
+        await redis_client.setex(cache_key, 3600, json.dumps(serialized_menus))
+    except Exception:
+        pass
+
     return db_all_menus
 
 ###########################################################################################
 #Logic to carry out the GET REQUEST BY ID request
 async def get_menu_by_id(db: AsyncSession, id: int):
+    cache_key = f"menu:id:{id}"
+    #Fetch from Redis first
+    try:
+        cached_data = await redis_client.get(cache_key)
+        if cached_data:
+            return json.loads(cached_data)
+    except Exception:
+        pass
 
-    #First, query the database for the work order with the specified ID
+    #After cache miss? Query the database for the work order with the specified ID
     stmt = select(Menu).where(Menu.id == id)
     result = await db.execute(stmt)
     db_menu_by_id = result.scalar_one_or_none()
     
     if db_menu_by_id is None:
         raise HTTPException(status_code=404, detail="Menu ID NOT FOUND", headers=None)
+
+    #Store fetched data from the database unto redis for at least an hour
+    try:
+        serialized_menus = menu_to_dict(db_menu_by_id)
+        await redis_client.setex(cache_key, 3600, json.dumps(serialized_menus))
+    except Exception:
+        pass
     
     return db_menu_by_id
 
@@ -133,6 +199,9 @@ async def edit_menu_by_id(menuItem: MenuSchema, db: AsyncSession, id: int, user:
     await db.commit()
     await db.refresh(db_edit_menu)
 
+    #To make sure users don't see outdated menus, INVALIDATE CACHE
+    await invalidate_menu_cache()
+
     #WebSocket broadcast call
     await ws_manager.broadcast({"type": "menu_updated", "week_string": str(db_edit_menu.week_string)})
     
@@ -153,6 +222,9 @@ async def delete_menu_by_id(id: int, db: AsyncSession, user: UserModel):
     # 3. Delete from DB
     await db.delete(db_delete_menu_by_id)
     await db.commit()
+
+    #To make sure users don't see outdated menus, INVALIDATE CACHE
+    await invalidate_menu_cache()
 
     #WebSocket broadcast call
     await ws_manager.broadcast({"type": "menu_updated", "week_string": str(db_delete_menu_by_id.week_string)})

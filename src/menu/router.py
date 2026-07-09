@@ -108,7 +108,7 @@ async def upload_image(request: Request, file: UploadFile = File(...)):
     filepath = os.path.join(UPLOAD_DIR, filename)
     
     try:
-        # Open with Pillow
+        # Open with Pillow (a python library for compressing images)
         img = Image.open(io.BytesIO(content))
         
         # Enforce max dimension of 800px (keeps aspect ratio)
@@ -118,6 +118,7 @@ async def upload_image(request: Request, file: UploadFile = File(...)):
         
         # Save as WebP with 80% quality compression
         img.save(filepath, format="WEBP", quality=80)
+
     except Exception as e:
         # Fallback to saving original file if file is not an image or processing fails
         ext = file.filename.split(".")[-1]

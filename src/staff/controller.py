@@ -11,6 +11,7 @@ import uuid
 from markupsafe import escape
 from src.utils.helpers import is_authenticated as check_user_authenticated
 from sqlalchemy.future import select
+from src.utils.redis import redis_client
 
 #########################################################################################################################
 #An import that allows you to add dates and time unto your code
@@ -134,6 +135,33 @@ async def login(user: LoginSchema, request: Request, db: AsyncSession):
 
 def is_authenticated(request: Request, db: AsyncSession):
     return check_user_authenticated(request, db)
+
+#########################################################################################################################
+
+async def logout(request: Request):
+    token = request.headers.get("authorization")
+    if not token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token not provided.")
+    
+    token = token.split(" ")[-1]
+    try:
+        # Decode the token (without verification checks, or verifying if preferred)
+        data = jwt.decode(token, settings.SECRET_KEY, settings.ALGORITHM)
+        jti = data.get("jti")
+        exp = data.get("exp")
+        
+        if jti and exp:
+            current_time = int(datetime.now().timestamp())
+            remaining_ttl = exp - current_time
+            
+            # If the token is still active, add it to Redis blacklist with a TTL
+            if remaining_ttl > 0:
+                await redis_client.setex(f"blacklist:{jti}", remaining_ttl, "true")
+                
+        return {"detail": "Successfully logged out."}
+    except Exception:
+        # Return success anyway, as an invalid/malformed token is effectively unusable
+        return {"detail": "Successfully logged out."}
 
 ###########################################################################################
 

@@ -7,6 +7,7 @@ from jwt.exceptions import InvalidTokenError
 from datetime import datetime
 from src.utils.db import get_db
 from sqlalchemy.future import select
+from src.utils.redis import redis_client
 
 #Creating protected routes by making this fuction a dependent function
 async def is_authenticated(request: Request, db: AsyncSession = Depends(get_db)): 
@@ -27,9 +28,14 @@ async def is_authenticated(request: Request, db: AsyncSession = Depends(get_db))
         #Decode the token and verify it with the params that were used to create it
         data = jwt.decode(token, settings.SECRET_KEY, settings.ALGORITHM)
 
-        #Get the user_id and the expiry time from the decoded token
+        #Get the user_id, expiry time and the token ID (jti) from the decoded token
         token_staff_id = data.get("staff_id")
         exp_time = data.get("exp")
+        jti = data.get("jti")
+
+        #Check if the token ID is in the Redis blacklist
+        if jti and await redis_client.exists(f"blacklist:{jti}"):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked.")
 
         #Compare expiry time to a current time
         current_time = datetime.now().timestamp()
