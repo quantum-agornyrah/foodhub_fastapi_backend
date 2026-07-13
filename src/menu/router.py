@@ -130,16 +130,6 @@ async def upload_image(request: Request, file: UploadFile = File(...)):
     image_url = f"{str(request.base_url)}uploads/{filename}"
     return {"image_url": image_url}
 
-#Create an upload router for minio storage
-# @menu_router.post("/upload-image")
-# async def upload_image(file: UploadFile = File(...)):
-#     import uuid
-#     ext = file.filename.split(".")[-1]
-#     filename = f"menu/{uuid.uuid4()}.{ext}"
-#     content = await file.read()
-#     image_url = await upload_to_s3(content, filename, file.content_type or "image/jpeg")
-#     return {"image_url": image_url}
-
 ###########################################################################################
 #Create a route to start a websocket connection
 @menu_router.websocket("/ws")
