@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from datetime import date
 from src.deadline import controller
 from src.deadline.dtos import DeadlineSchema
@@ -13,12 +13,12 @@ deadline_router = APIRouter(prefix="/deadline")
 
 #Create a route to create a deadline
 @deadline_router.post("/", status_code=status.HTTP_201_CREATED)
-async def set_deadline(deadline: DeadlineSchema, db: AsyncSession = Depends(get_db), user: UserModel = Depends(is_authenticated)):
+async def set_deadline(deadline: DeadlineSchema, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db), user: UserModel = Depends(is_authenticated)):
     # Guard check
     if user.role.lower() != "hr":
         raise HTTPException(status_code=403, detail="Only HR can set ordering deadlines.")
     
-    return await controller.set_deadline(deadline, db, user)
+    return await controller.set_deadline(deadline, db, user, background_tasks)
 
 ###########################################################################################
 
@@ -31,12 +31,12 @@ async def get_deadline(week_string: date, db: AsyncSession = Depends(get_db), us
 
 #Create a route to edit deadlines
 @deadline_router.put("/edit/{id}", response_model=DeadlineSchema, status_code=status.HTTP_200_OK)
-async def edit_deadline_by_id(id: int, deadline: DeadlineSchema, db: AsyncSession = Depends(get_db), user: UserModel = Depends(is_authenticated)):
+async def edit_deadline_by_id(id: int, deadline: DeadlineSchema, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db), user: UserModel = Depends(is_authenticated)):
     # Guard check
     if user.role.lower() != "hr":
         raise HTTPException(status_code=403, detail="Only HR can edit ordering deadlines.")
     
-    return await controller.edit_deadline_by_id(deadline, db, id, user)
+    return await controller.edit_deadline_by_id(deadline, db, id, user, background_tasks)
 
 ###########################################################################################
 

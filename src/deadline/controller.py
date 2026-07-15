@@ -1,8 +1,9 @@
-from fastapi import HTTPException
+from fastapi import HTTPException, BackgroundTasks
 from datetime import date
 from src.deadline.dtos import DeadlineSchema
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.deadline.models import Deadline
+from src.utils.mail import send_deadline_reminder
 from src.staff.models import UserModel
 from sqlalchemy.future import select
 from src.utils.ws_manager import ws_manager
@@ -11,7 +12,7 @@ from src.utils.ws_manager import ws_manager
 
 ###########################################################################################
 #Logic to carry out the CREATE WORKORDER request
-async def set_deadline(deadlineItem: DeadlineSchema, db: AsyncSession, user: UserModel):
+async def set_deadline(deadlineItem: DeadlineSchema, db: AsyncSession, user: UserModel, background_tasks: BackgroundTasks):
     data = deadlineItem.model_dump()
     
     stmt = select(Deadline).where(Deadline.week_string == data["week_string"])
@@ -27,8 +28,30 @@ async def set_deadline(deadlineItem: DeadlineSchema, db: AsyncSession, user: Use
     await db.commit()
     await db.refresh(existing)
 
-    #WebSocket broadcast call
+    # WebSocket broadcast call
     await ws_manager.broadcast({"type": "deadline_updated", "week_string": str(existing.week_string)})
+
+    # Email Implementation
+    stmt = select(UserModel.email, UserModel.name).where(
+        UserModel.status == "Active",
+        UserModel.role != "hr"
+    )
+
+    result = await db.execute(stmt)
+    staff_data = result.all()
+
+    if staff_data:
+        staff_emails = [email for (email, name) in staff_data if email]
+        
+        if staff_emails:
+            # Format the deadline nicely
+            deadline_str = str(existing.deadline)  # e.g., "2024-01-15 17:00:00"
+            deadline_parts = deadline_str.split()
+            deadline_date = deadline_parts[0] if len(deadline_parts) > 0 else "N/A"
+            deadline_time = deadline_parts[1] if len(deadline_parts) > 1 else "N/A"
+            
+            # Send email in background
+            background_tasks.add_task(send_deadline_reminder, staff_emails, deadline_date, deadline_time, str(existing.week_string))
 
     return existing
 
@@ -57,7 +80,7 @@ async def get_deadline_by_id(db: AsyncSession, id: int):
 
 ###########################################################################################
 #Logic to carry out the EDIT/UPDATE REQUEST
-async def edit_deadline_by_id(deadlineItem: DeadlineSchema, db: AsyncSession, id: int, user: UserModel):
+async def edit_deadline_by_id(deadlineItem: DeadlineSchema, db: AsyncSession, id: int, user: UserModel, background_tasks: BackgroundTasks):
 
     stmt = select(Deadline).where(Deadline.id == id)
     result = await db.execute(stmt)
@@ -73,8 +96,24 @@ async def edit_deadline_by_id(deadlineItem: DeadlineSchema, db: AsyncSession, id
     await db.commit()
     await db.refresh(db_edit_deadline_by_id)
 
-    #WebSocket broadcast call
+    # WebSocket broadcast call
     await ws_manager.broadcast({"type": "deadline_updated", "week_string": str(db_edit_deadline_by_id.week_string)})
+
+    # Email implementation
+    stmt = select(UserModel.email).where(
+        UserModel.status == "Active",
+        UserModel.role != "hr"
+    )
+    result = await db.execute(stmt)
+    staff_emails = [email for (email,) in result.all() if email]
+    
+    if staff_emails:
+        deadline_str = str(db_edit_deadline_by_id.deadline)
+        deadline_parts = deadline_str.split()
+        deadline_date = deadline_parts[0] if len(deadline_parts) > 0 else "N/A"
+        deadline_time = deadline_parts[1] if len(deadline_parts) > 1 else "N/A"
+        
+        background_tasks.add_task(send_deadline_reminder, staff_emails, deadline_date, deadline_time, str(db_edit_deadline_by_id.week_string))
     
     return db_edit_deadline_by_id
 
