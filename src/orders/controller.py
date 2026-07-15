@@ -130,7 +130,7 @@ async def edit_orders_by_id(ordersItem: OrdersUpdateSchema, db: AsyncSession, id
 
 
 ###########################################################################################
-#Logic to carry out the DELETE WORKORDER orders
+#Logic to carry out the DELETE orders
 async def delete_orders_by_id(id: int, db: AsyncSession, user: UserModel):
     stmt = select(Orders).where(Orders.id == id)
     result = await db.execute(stmt)
