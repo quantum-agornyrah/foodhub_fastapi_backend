@@ -96,38 +96,82 @@ async def delete_menu_by_id(id: int, db: AsyncSession = Depends(get_db), user: U
 ###########################################################################################
 
 #Create an upload router for local storage
-@menu_router.post("/upload-image")
-async def upload_image(request: Request, file: UploadFile = File(...)):
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
+# @menu_router.post("/upload-image")
+# async def upload_image(request: Request, file: UploadFile = File(...)):
+#     os.makedirs(UPLOAD_DIR, exist_ok=True)
     
-    # Read raw content
+#     # Read raw content
+#     content = await file.read()
+    
+#     # Default outputs
+#     filename = f"{uuid.uuid4()}.webp"
+#     filepath = os.path.join(UPLOAD_DIR, filename)
+    
+#     try:
+#         # Open with Pillow (a python library for compressing images)
+#         img = Image.open(io.BytesIO(content))
+        
+#         # Enforce max dimension of 800px (keeps aspect ratio)
+#         max_size = 800
+#         if img.width > max_size or img.height > max_size:
+#             img.thumbnail((max_size, max_size))
+        
+#         # Save as WebP with 80% quality compression
+#         img.save(filepath, format="WEBP", quality=80)
+
+#     except Exception as e:
+#         # Fallback to saving original file if file is not an image or processing fails
+#         ext = file.filename.split(".")[-1]
+#         filename = f"{uuid.uuid4()}.{ext}"
+#         filepath = os.path.join(UPLOAD_DIR, filename)
+#         async with aiofiles.open(filepath, "wb") as f:
+#             await f.write(content)
+            
+#     image_url = f"{str(request.base_url)}uploads/{filename}"
+#     return {"image_url": image_url}
+
+###########################################################################################
+
+#Create an upload router for MinIO S3 storage
+@menu_router.post("/upload-image")
+async def upload_image(file: UploadFile = File(...)):
+    # Read raw content of the uploaded image/file
     content = await file.read()
     
-    # Default outputs
+    # Assign a default output with a webp extension unto the s3 bucket storage
     filename = f"{uuid.uuid4()}.webp"
-    filepath = os.path.join(UPLOAD_DIR, filename)
     
     try:
-        # Open with Pillow (a python library for compressing images)
+        # Open uploaded image with the python Pillow library responsible for file compression
         img = Image.open(io.BytesIO(content))
         
-        # Enforce max dimension of 800px (keeps aspect ratio)
+        # Enforce max dimension of 800px for all uploaded images
         max_size = 800
         if img.width > max_size or img.height > max_size:
             img.thumbnail((max_size, max_size))
         
-        # Save as WebP with 80% quality compression
-        img.save(filepath, format="WEBP", quality=80)
+        # Save as WebP with 80% quality compression into an in-memory buffer
+        buffer = io.BytesIO()
+
+        # Remember that the uploaded image, CONTENT is chnaged to IMG after opening with Pillow
+        # Now its being saved with new credentials
+        img.save(buffer, format="WEBP", quality=80)
+
+        # Now IMG becomes FILE_BYTES after converting to webp
+        file_bytes = buffer.getvalue()
+        
+        # Upload compressed WebP i.e FILE_BYTES to S3 storage bucket
+        image_url = await upload_to_s3(file_bytes, filename, "image/webp")
 
     except Exception as e:
-        # Fallback to saving original file if file is not an image or processing fails
-        ext = file.filename.split(".")[-1]
+        # Fallback to uploading original file if image compression/processing fails
+        ext = file.filename.split(".")[-1] if "." in file.filename else "bin"
         filename = f"{uuid.uuid4()}.{ext}"
-        filepath = os.path.join(UPLOAD_DIR, filename)
-        async with aiofiles.open(filepath, "wb") as f:
-            await f.write(content)
+        content_type = file.content_type or "application/octet-stream"
+        
+        # Upload original bytes to S3
+        image_url = await upload_to_s3(content, filename, content_type)
             
-    image_url = f"{str(request.base_url)}uploads/{filename}"
     return {"image_url": image_url}
 
 ###########################################################################################
