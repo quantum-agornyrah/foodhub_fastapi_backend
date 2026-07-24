@@ -3,7 +3,7 @@ from src.orders.dtos import OrdersSchema, OrdersUpdateSchema
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.orders.models import Orders
 from src.staff.models import UserModel
-from datetime import date
+from datetime import date, datetime
 from sqlalchemy.future import select
 
 #NB: model_dump() converts a data from pydantic class to a dictionary
@@ -17,7 +17,7 @@ async def create_order(orderItem: OrdersSchema, db: AsyncSession, user: UserMode
 
     #Check if status is submitted
     if new_order["status"].lower() == "submitted":
-        new_order["submitted_at"] = datetime.now().isoformat()
+        new_order["submitted_at"] = datetime.now()
 
     #Second, add data to databse by unpacking the data and using the database model as a blueprint
     db_new_order = Orders(
