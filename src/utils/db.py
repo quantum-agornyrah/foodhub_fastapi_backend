@@ -15,7 +15,7 @@ engine = create_async_engine(
     pool_size=0,          # connections kept open permanently
     max_overflow=0,       # extra connections allowed under load (then wait)
     pool_timeout=30,       # seconds to wait for a connection before error
-    # pool_recycle=1800,     # recycle connections every 30 min (prevents stale)
+    pool_recycle=1800,     # recycle connections every 30 min (prevents stale)
     pool_pre_ping=True,    # test connection before using it (catches dropped conns)
 
     # Dynamically set echo based on your environment
