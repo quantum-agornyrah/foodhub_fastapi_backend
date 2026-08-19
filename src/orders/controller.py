@@ -39,7 +39,7 @@ async def create_order(orderItem: OrdersSchema, db: AsyncSession, user: UserMode
     #Third, add the unpacked data to the database and save changes(commit)
     db.add(db_new_order)
     await db.commit()
-    await db.refresh(db_new_order)  # ✅ Add this
+    await db.refresh(db_new_order)
         
     #Improving endpoints for production:
     #This class is a performance format or practise to make the response more readable
